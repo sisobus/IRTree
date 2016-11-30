@@ -16,6 +16,14 @@ void test() {
         tree->insert(gen());
     tree->bfs();
 }
+/*
+void test1() {
+    vector<IRTree*> v;
+    v.push_back(new IRTree);
+
+    v[0]->insert(document);
+}
+*/
 
 int main() {
     test();
