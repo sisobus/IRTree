@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <list>
 #include <cstring>
 #include <string>
 #include <algorithm>
@@ -125,7 +126,7 @@ struct Document {
     Document(){}
     Document(Point _location):
         location (_location) {}
-    Document(Point _location,map<string,int> _keywords):
+    Document(Point _location,map<string,int>& _keywords):
         location (_location), keywords(_keywords) {}
     void print() {
         printf("(%lf,%lf) ",location.x,location.y);
@@ -138,11 +139,17 @@ struct Document {
 struct Node {
     Node* parent;
     Rectangle mbr;
-    vector<Node*> child;
+    list<Node*> child;
     vector<Document> document;
     map<string,int> keywords;
 /* constructor */
     Node(): parent(NULL){}
+    virtual ~Node(){
+        parent = NULL;
+        while ( !child.empty() ) 
+            child.pop_back();
+    }
+
     
     void print() {
         printf("[%d,%d] [(%lf,%lf),(%lf,%lf)] ",(int)child.size(),(int)document.size(),mbr.left.x,mbr.left.y,mbr.right.x,mbr.right.y);
@@ -235,6 +242,7 @@ struct Node {
         Node* parent = this->parent;
         if ( parent->child.empty() && parent->document.empty() ) {
         } else {
+            /*
             int indexForErase = -1;
             for ( int i = 0 ; i < (int)parent->child.size() ; i++ ) 
                 if ( parent->child[i] == this ) {
@@ -245,6 +253,14 @@ struct Node {
                     it!=this->keywords.end();it++ ) 
                 parent->keywords[it->first] -= it->second;
             parent->child.erase(parent->child.begin()+indexForErase);
+            */
+            list<Node*>::iterator it;
+            for ( it=parent->child.begin();it!=parent->child.end();it++ ) 
+                if ( *it == this ) break;
+            for ( map<string,int>::iterator it2=this->keywords.begin();\
+                    it2!=this->keywords.end();it2++ )
+                parent->keywords[it2->first] -= it2->second;
+            parent->child.erase(it);
         }
         newNode1->parent = newNode2->parent = parent;
         if ( isLeaf() ) {
@@ -298,29 +314,29 @@ struct Node {
                 resultSeed->addDocument(curDocument);
             }
         } else {
-            pair<double,Node*> mxx(this->child[0]->mbr.left.x,this->child[0]);
-            pair<double,Node*> mnx(this->child[0]->mbr.right.x,this->child[0]);
-            pair<double,Node*> mxy(this->child[0]->mbr.left.y,this->child[0]);
-            pair<double,Node*> mny(this->child[0]->mbr.right.y,this->child[0]);
+            Node* firstChild = *this->child.begin();
+            pair<double,Node*> mxx(firstChild->mbr.left.x,firstChild);
+            pair<double,Node*> mnx(firstChild->mbr.right.x,firstChild);
+            pair<double,Node*> mxy(firstChild->mbr.left.y,firstChild);
+            pair<double,Node*> mny(firstChild->mbr.right.y,firstChild);
             int mxxi, mnxi, mxyi, mnyi;
             mxxi = mnxi = mxyi = mnyi = 0;
-            for ( int i = 1 ; i < (int)this->child.size() ; i++ ) {
-                Node* curChild = this->child[i];
+            for ( list<Node*>::iterator it=this->child.begin();\
+                    it!=this->child.end();it++ ){
+//            for ( int i = 1 ; i < (int)this->child.size() ; i++ ) {
+//                Node* curChild = this->child[i];
+                Node* curChild = *it;
                 if ( mxx.first < curChild->mbr.left.x ) {
                     mxx = pair<double,Node*>(curChild->mbr.left.x,curChild);
-                    mxxi = i;
                 }
                 if ( mnx.first > curChild->mbr.right.x ) {
                     mnx = pair<double,Node*>(curChild->mbr.right.x,curChild);
-                    mnxi = i;
                 }
                 if ( mxy.first < curChild->mbr.left.y ) {
                     mxy = pair<double,Node*>(curChild->mbr.left.y,curChild);
-                    mxyi = i;
                 }
                 if ( mny.first > curChild->mbr.right.y ) { 
                     mny = pair<double,Node*>(curChild->mbr.right.y,curChild);
-                    mnyi = i;
                 }
             }
             double a = mxx.first - mnx.first;
@@ -329,19 +345,24 @@ struct Node {
             int seed1i, seed2i;
             if ( a > b ) {
                 seed1 = mxx.second;
-                seed1i = mxxi;
                 seed2 = mnx.second;
-                seed2i = mnxi;
             } else {
                 seed1 = mxy.second;
                 seed2 = mny.second;
-                seed1i = mxyi;
-                seed2i = mnyi;
             }
             newNode1->addChild(seed1);
             seed1->parent = newNode1;
             newNode2->addChild(seed2);
             seed2->parent = newNode2;
+            for ( list<Node*>::iterator it=this->child.begin();\
+                    it!=this->child.end();it++ ) {
+                if ( seed1 == (*it) || seed2 == (*it) ) continue;
+                Node *curChild = (*it);
+                Node* resultSeed = selectSeed(newNode1,newNode2,curChild->mbr);
+                resultSeed->addChild(curChild);
+                curChild->parent = resultSeed;
+            }
+            /*
             for ( int i = 0 ; i < (int)this->child.size() ; i++ ) {
                 if ( seed1i == i || seed2i == i ) continue;
                 Node *curChild = this->child[i];
@@ -349,12 +370,24 @@ struct Node {
                 resultSeed->addChild(curChild);
                 curChild->parent = resultSeed;
             }
+            */
         }
         parent->addChild(newNode1);
         parent->addChild(newNode2);
         return parent;
     }
     Node* findChildForInsert(Document d) {
+        pair<double,Node*> mn(inf,*this->child.begin());
+        for ( list<Node*>::iterator it=this->child.begin();\
+                it!=this->child.end();it++ ) {
+            Node* curChild = (*it);
+            if ( curChild->mbr.isInside(d.location) ) 
+                return curChild;
+            double curAmount = curChild->mbr.getAmount(d.location);
+            if ( mn.first > curAmount ) 
+                mn = pair<double,Node*>(curAmount,curChild);
+        }
+        /*
         pair<double,Node*> mn(inf,this->child[0]);
         for ( int i = 0 ; i < (int)this->child.size() ; i++ ) {
             Node* curChild = this->child[i];
@@ -364,6 +397,7 @@ struct Node {
             if ( mn.first > curAmount ) 
                 mn = pair<double,Node*>(curAmount,curChild);
         }
+        */
         return mn.second;
     }
 };
@@ -419,8 +453,13 @@ struct IRTree {
             for ( int i = 0 ; i < (int)now->document.size() ; i++ ) 
                 now->document[i].print();
         } else {
+            for ( list<Node*>::iterator it=now->child.begin();\
+                    it!=now->child.end();it++ ) 
+                _dfs(*it);
+            /*
             for ( int i = 0 ; i < (int)now->child.size() ; i++ ) 
                 _dfs(now->child[i]);
+                */
         }
     }
     void dfs() {
@@ -436,8 +475,13 @@ struct IRTree {
                 for ( int i = 0 ; i < (int)now->document.size() ; i++ ) 
                     now->document[i].print();
             } else {
+                for ( list<Node*>::iterator it=now->child.begin();\
+                        it!=now->child.end();it++ ) 
+                    q.push(*it);
+                /*
                 for ( int i = 0 ; i < (int)now->child.size() ; i++ ) 
                     q.push(now->child[i]);
+                    */
             }
         }
     }
