@@ -145,7 +145,7 @@ struct Node {
 /* constructor */
     Node(): parent(NULL){}
     virtual ~Node(){
-        parent = NULL;
+//        parent = NULL;
         while ( !child.empty() ) 
             child.pop_back();
     }
@@ -178,22 +178,24 @@ struct Node {
             ret += it->second;
         return ret;
     }
-    void addChild(Node *child) {
+    void addChild(Node *_child) {
         if ( this->child.empty() ) {
-            this->child.push_back(child);
-            this->keywords = child->keywords;
-            this->mbr = child->mbr;
+            this->child.push_back(_child);
+            _child->parent = this;
+            this->keywords = _child->keywords;
+            this->mbr = _child->mbr;
         } else {
-            this->child.push_back(child);
-            for ( map<string,int>::iterator it=child->keywords.begin();\
-                    it!=child->keywords.end();it++ ) {
+            this->child.push_back(_child);
+            _child->parent = this;
+            for ( map<string,int>::iterator it=_child->keywords.begin();\
+                    it!=_child->keywords.end();it++ ) {
                 if ( this->keywords.count(it->first) == 0 ) {
                     this->keywords[it->first] = it->second;
                 } else {
                     this->keywords[it->first] += it->second;
                 }
             }
-            this->mbr.update(child->mbr);
+            this->mbr.update(_child->mbr);
         }
     }
     void addDocument(Document d) {
@@ -227,9 +229,7 @@ struct Node {
         left.y = min(seed2->mbr.left.y,r.left.y);
         double area2 = area(Rectangle(left,right)) - area(seed2->mbr);
 
-        bool change = false;
         if ( (area1 > area2) && MAX_SIZE_OF_MBR-MIN_SIZE_OF_MBR+1>(int)seed1->child.size() ){
-            change = true;
             return seed1;
         } else if ( MAX_SIZE_OF_MBR-MIN_SIZE_OF_MBR+1>(int)seed2->child.size() ) {
             return seed2;
@@ -239,8 +239,8 @@ struct Node {
     Node* split() {
         Node* newNode1 = new Node;
         Node* newNode2 = new Node;
-        Node* parent = this->parent;
-        if ( parent->child.empty() && parent->document.empty() ) {
+        Node* _parent = this->parent;
+        if ( _parent->child.empty() && _parent->document.empty() ) {
         } else {
             /*
             int indexForErase = -1;
@@ -255,14 +255,14 @@ struct Node {
             parent->child.erase(parent->child.begin()+indexForErase);
             */
             list<Node*>::iterator it;
-            for ( it=parent->child.begin();it!=parent->child.end();it++ ) 
+            for ( it=_parent->child.begin();it!=_parent->child.end();it++ ) 
                 if ( *it == this ) break;
             for ( map<string,int>::iterator it2=this->keywords.begin();\
                     it2!=this->keywords.end();it2++ )
-                parent->keywords[it2->first] -= it2->second;
-            parent->child.erase(it);
+                _parent->keywords[it2->first] -= it2->second;
+            _parent->child.erase(it);
         }
-        newNode1->parent = newNode2->parent = parent;
+        newNode1->parent = newNode2->parent = _parent;
         if ( isLeaf() ) {
             pair<double,Document> mxx(this->document[0].location.x,this->document[0]);
             pair<double,Document> mnx(this->document[0].location.x,this->document[0]);
@@ -372,9 +372,9 @@ struct Node {
             }
             */
         }
-        parent->addChild(newNode1);
-        parent->addChild(newNode2);
-        return parent;
+        _parent->addChild(newNode1);
+        _parent->addChild(newNode2);
+        return _parent;
     }
     Node* findChildForInsert(Document d) {
         pair<double,Node*> mn(inf,*this->child.begin());
@@ -405,6 +405,24 @@ struct IRTree {
     Node* root;
 
     IRTree(): root(NULL){}
+    void update(Node *now) {
+        if ( now->isLeaf() ) return;
+        for ( list<Node*>::iterator it=now->child.begin();it!=now->child.end();it++ ) {
+            if ( (*it)->parent != now ) (*it)->parent = now;
+            update(*it);
+        }
+    }
+    bool checkLeafOk(Node *now) {
+        if ( now->isLeaf() ) {
+            return (int)now->document.size() <= MAX_SIZE_OF_MBR;
+        }
+        bool ret = true;
+        for ( list<Node*>::iterator it=now->child.begin();it!=now->child.end();it++ ) {
+            if ( (*it)->parent != now ) return false;
+            ret &= checkLeafOk(*it);
+        }
+        return ret;
+    }
     void insert(Document d) {
         if ( root == NULL ) {
             Node* newNode = new Node;
@@ -436,6 +454,7 @@ struct IRTree {
                     if ( !np->isLeaf() && (int)np->child.size() <= MAX_SIZE_OF_MBR ) 
                         break;
                     Node* resultParent = np->split();
+                    np->parent = resultParent;
                     np = resultParent;
                 }
                 if ( np->isRoot() && np->child.size() > MAX_SIZE_OF_MBR ) {
@@ -446,6 +465,7 @@ struct IRTree {
                 }
             }
         }
+        update(root);
     }
     void _dfs(Node* now) {
         now->print();
